@@ -98,6 +98,9 @@ importers:
       secp256k1:
         specifier: ^5.0.1
         version: 5.0.1
+      self-update:
+        specifier: ^0.0.1
+        version: 0.0.1
       zustand:
         specifier: 4.5.2
         version: 4.5.2(@types/react@18.0.25)(immer@10.1.3)(react@18.2.0)
@@ -4311,6 +4314,9 @@ packages:
 
   secure-json-parse@2.7.0:
     resolution: {integrity: sha512-6aU+Rwsezw7VR8/nyvKTx8QpWH9FrcYiXXlqC4z5d5XQBDRqtbfsRjnwGyqbi3gddNtWHuEk9OANUotL26qKUw==}
+
+  self-update@0.0.1:
+    resolution: {integrity: sha512-q0mbbnXYlSZmTOQ5jT+WS43M4FnmVzhV2KbQrLUAvJzNNnEznSNy2j+nFHzO/tUXDArlN4byo3FW0GHaEV0GdA==}
 
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
@@ -11102,6 +11108,8 @@ snapshots:
       node-gyp-build: 4.8.4
 
   secure-json-parse@2.7.0: {}
+
+  self-update@0.0.1: {}
 
   semver@6.3.1: {}
 

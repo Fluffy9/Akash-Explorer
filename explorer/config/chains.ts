@@ -4,7 +4,7 @@ import {
   assetLists as allAssetLists,
 } from '@chain-registry/v2'
 
-const chainNames = ['osmosistestnet', 'juno', 'stargaze', 
+const chainNames = ['osmosistestnet', 'juno', 'stargaze', 'akash',
   // 'ethereum'
 ];
 
