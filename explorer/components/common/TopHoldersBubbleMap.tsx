@@ -52,14 +52,23 @@ const TopHoldersBubbleMap: React.FC = () => {
         fetchTopHolders();
     }, []);
 
+    const fetchWithTimeout = (url: string, timeout = 5000): Promise<Response> => {
+        return Promise.race([
+            fetch(url),
+            new Promise<Response>((_, reject) =>
+                setTimeout(() => reject(new Error('Request timeout')), timeout)
+            )
+        ]);
+    };
+
     const fetchTopHolders = async () => {
         setIsLoading(true);
         setError(null);
 
         try {
             // Option 1: Try Mintscan API 
-            const mintscanResponse = await fetch('https://api.mintscan.io/v1/akash/account/top-holders?limit=15');
-            
+            const mintscanResponse = await fetchWithTimeout('https://api.mintscan.io/v1/akash/account/top-holders?limit=15');
+
             if (mintscanResponse.ok) {
                 const data = await mintscanResponse.json();
                 const processedHolders = processMintscanData(data);
@@ -77,7 +86,7 @@ const TopHoldersBubbleMap: React.FC = () => {
         try {
             // Option 2: Try the Arcturian API for supply info
             const supplyResponse = await fetch('https://akash.api.arcturian.tech/cosmos/bank/v1beta1/supply/uakt');
-            
+
             if (supplyResponse.ok) {
                 const supplyData = await supplyResponse.json();
                 console.log('Total supply data:', supplyData);
@@ -91,7 +100,7 @@ const TopHoldersBubbleMap: React.FC = () => {
         try {
             // Option 3: Try alternative explorer APIs
             const alternativeResponse = await fetch('https://api-akash.cosmostation.io/v1/account/holders?limit=15');
-            
+
             if (alternativeResponse.ok) {
                 const data = await alternativeResponse.json();
                 const processedHolders = processCosmostationData(data);
@@ -117,13 +126,13 @@ const TopHoldersBubbleMap: React.FC = () => {
     const processMintscanData = (data: any): Holder[] => {
         try {
             if (!data?.holders || !Array.isArray(data.holders)) return [];
-            
+
             const totalSupply = data.total_supply || 388539008; // AKT max supply
-            
+
             return data.holders.slice(0, 15).map((holder: any, index: number) => {
                 const balance = parseFloat(holder.amount || holder.balance) / 1000000; // Convert from uakt to AKT
                 const percentage = (balance / totalSupply) * 100;
-                
+
                 return {
                     address: truncateAddress(holder.address),
                     balance: balance,
@@ -140,13 +149,13 @@ const TopHoldersBubbleMap: React.FC = () => {
     const processCosmostationData = (data: any): Holder[] => {
         try {
             if (!data?.data || !Array.isArray(data.data)) return [];
-            
+
             const totalSupply = 388539008; // AKT max supply
-            
+
             return data.data.slice(0, 15).map((holder: any, index: number) => {
                 const balance = parseFloat(holder.balance || holder.amount) / 1000000;
                 const percentage = (balance / totalSupply) * 100;
-                
+
                 return {
                     address: truncateAddress(holder.address),
                     balance: balance,
@@ -165,8 +174,9 @@ const TopHoldersBubbleMap: React.FC = () => {
         return `${address.slice(0, 11)}...${address.slice(-4)}`;
     };
 
-    const maxBalance = Math.max(...holders.map(h => h.balance));
-    const minBalance = Math.min(...holders.map(h => h.balance));
+    const balances = holders.map(h => h.balance);
+    const maxBalance = balances.length > 0 ? Math.max(...balances) : 0;
+    const minBalance = balances.length > 0 ? Math.min(...balances) : 0;
 
     const getBubbleSize = (balance: number): number => {
         const minSize = 40;
@@ -227,8 +237,8 @@ const TopHoldersBubbleMap: React.FC = () => {
     };
 
     return (
-        <div style={{ 
-            minHeight: '100vh', 
+        <div style={{
+            minHeight: '100vh',
             background: `linear-gradient(135deg, ${bgColor} 0%, #1a0505 50%, ${bgColor} 100%)`,
             padding: '3rem'
         }}>
