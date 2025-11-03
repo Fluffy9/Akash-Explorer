@@ -14,6 +14,8 @@ interface BubblePosition {
 }
 
 // Hardcoded fallback data
+// NOTE: Currently, there is NO public API that provides Akash holder richlist data.
+// This data serves as demonstration until proper indexing is implemented.
 const FALLBACK_HOLDERS: Holder[] = [
     { address: 'akash1abc...xyz1', balance: 15000000, percentage: 15.5, rank: 1 },
     { address: 'akash1def...xyz2', balance: 12000000, percentage: 12.3, rank: 2 },
@@ -34,9 +36,9 @@ const FALLBACK_HOLDERS: Holder[] = [
 
 const TopHoldersBubbleMap: React.FC = () => {
     const [holders, setHolders] = useState<Holder[]>(FALLBACK_HOLDERS);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [dataSource, setDataSource] = useState<'live' | 'fallback'>('fallback');
+    const [isLoading, setIsLoading] = useState(false);
+    const [totalSupply, setTotalSupply] = useState<number | null>(null);
+    const [dataSource, setDataSource] = useState<'demo' | 'backend'>('demo');
     const [hoveredHolder, setHoveredHolder] = useState<string | null>(null);
     const [selectedHolder, setSelectedHolder] = useState<string | null>(null);
 
@@ -49,7 +51,8 @@ const TopHoldersBubbleMap: React.FC = () => {
     const cardBorder = 'rgba(255, 65, 76, 0.3)';
 
     useEffect(() => {
-        fetchTopHolders();
+        // Fetch total supply on mount (this API works!)
+        fetchTotalSupply();
     }, []);
 
     const fetchWithTimeout = (url: string, timeout = 5000): Promise<Response> => {
@@ -69,111 +72,72 @@ const TopHoldersBubbleMap: React.FC = () => {
             });
     };
 
+    // Fetch actual total supply from Akash blockchain
+    const fetchTotalSupply = async () => {
+        try {
+            // Try multiple working API endpoints
+            const endpoints = [
+                'https://akash-api.polkachu.com/cosmos/bank/v1beta1/supply/uakt',
+                'https://akash-api.stakecito.com/cosmos/bank/v1beta1/supply/uakt',
+                'https://rest.cosmos.directory/akash/cosmos/bank/v1beta1/supply/uakt'
+            ];
+
+            for (const endpoint of endpoints) {
+                try {
+                    const response = await fetchWithTimeout(endpoint);
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data?.amount?.amount) {
+                            const supplyInAKT = parseInt(data.amount.amount) / 1000000;
+                            setTotalSupply(supplyInAKT);
+                            console.log('Total AKT supply:', supplyInAKT.toLocaleString());
+                            return;
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`Failed to fetch from ${endpoint}:`, err);
+                    continue;
+                }
+            }
+        } catch (err) {
+            console.error('Failed to fetch total supply:', err);
+        }
+    };
+
+    // Attempt to fetch holder data from custom backend
     const fetchTopHolders = async () => {
         setIsLoading(true);
-        setError(null);
 
         try {
-            // Option 1: Try Mintscan API 
-            const mintscanResponse = await fetchWithTimeout('https://api.mintscan.io/v1/akash/account/top-holders?limit=15');
+            // Check if a custom backend endpoint is configured
+            const backendUrl = process.env.NEXT_PUBLIC_HOLDERS_API ||
+                process.env.REACT_APP_HOLDERS_API;
 
-            if (mintscanResponse.ok) {
-                const data = await mintscanResponse.json();
-                const processedHolders = processMintscanData(data);
-                if (processedHolders.length > 0) {
-                    setHolders(processedHolders);
-                    setDataSource('live');
-                    setIsLoading(false);
-                    return;
+            if (backendUrl) {
+                const response = await fetchWithTimeout(backendUrl);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data?.holders && Array.isArray(data.holders) && data.holders.length > 0) {
+                        setHolders(data.holders);
+                        setDataSource('backend');
+                        setIsLoading(false);
+                        return;
+                    }
                 }
             }
+
+            // If no backend or backend fails, use demo data
+            console.log('Using demonstration data - No backend API configured');
+            setHolders(FALLBACK_HOLDERS);
+            setDataSource('demo');
+
         } catch (err) {
-            console.warn('Mintscan API failed, trying alternative sources...', err);
-        }
-
-        try {
-            // Option 2: Try the Arcturian API for supply info
-          const supplyResponse = await fetchWithTimeout('https://akash.api.arcturian.tech/cosmos/bank/v1beta1/supply/uakt');
-
-            if (supplyResponse.ok) {
-                const supplyData = await supplyResponse.json();
-                console.log('Total supply data:', supplyData);
-                // Note: This gives us total supply but not individual holders
-                // In production, you'd need a proper indexer service
-            }
-        } catch (err) {
-            console.warn('Arcturian API failed:', err);
-        }
-
-        try {
-            // Option 3: Try alternative explorer APIs
-            const alternativeResponse = await fetchWithTimeout('https://api-akash.cosmostation.io/v1/account/holders?limit=15');
-
-            if (alternativeResponse.ok) {
-                const data = await alternativeResponse.json();
-                const processedHolders = processCosmostationData(data);
-                if (processedHolders.length > 0) {
-                    setHolders(processedHolders);
-                    setDataSource('live');
-                    setIsLoading(false);
-                    return;
-                }
-            }
-        } catch (err) {
-            console.warn('Alternative API failed:', err);
-        }
-
-        // If all APIs fail, use fallback data
-        console.log('Using fallback holder data');
-        setHolders(FALLBACK_HOLDERS);
-        setDataSource('fallback');
-        setError('Live data unavailable. Displaying sample data.');
-        setIsLoading(false);
-    };
-
-    const processMintscanData = (data: any): Holder[] => {
-        try {
-            if (!data?.holders || !Array.isArray(data.holders)) return [];
-
-            const totalSupply = data.total_supply || 388539008; // AKT max supply
-
-            return data.holders.slice(0, 15).map((holder: any, index: number) => {
-                const balance = parseFloat(holder.amount || holder.balance) / 1000000; // Convert from uakt to AKT
-                const percentage = (balance / totalSupply) * 100;
-
-                return {
-                    address: truncateAddress(holder.address),
-                    balance: balance,
-                    percentage: parseFloat(percentage.toFixed(2)),
-                    rank: index + 1
-                };
-            });
-        } catch (err) {
-            console.error('Error processing Mintscan data:', err);
-            return [];
-        }
-    };
-
-    const processCosmostationData = (data: any): Holder[] => {
-        try {
-            if (!data?.data || !Array.isArray(data.data)) return [];
-
-            const totalSupply = 388539008; // AKT max supply
-
-            return data.data.slice(0, 15).map((holder: any, index: number) => {
-                const balance = parseFloat(holder.balance || holder.amount) / 1000000;
-                const percentage = (balance / totalSupply) * 100;
-
-                return {
-                    address: truncateAddress(holder.address),
-                    balance: balance,
-                    percentage: parseFloat(percentage.toFixed(2)),
-                    rank: index + 1
-                };
-            });
-        } catch (err) {
-            console.error('Error processing Cosmostation data:', err);
-            return [];
+            console.warn('Failed to fetch holder data:', err);
+            setHolders(FALLBACK_HOLDERS);
+            setDataSource('demo');
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -187,6 +151,7 @@ const TopHoldersBubbleMap: React.FC = () => {
     const minBalance = balances.length > 0 ? Math.min(...balances) : 0;
 
     const getBubbleSize = (balance: number): number => {
+        if (maxBalance === minBalance) return 100;
         const minSize = 40;
         const maxSize = 180;
         const normalized = (balance - minBalance) / (maxBalance - minBalance);
@@ -267,52 +232,66 @@ const TopHoldersBubbleMap: React.FC = () => {
                                 <Text fontSize="$2xl" fontWeight="$semibold" color={akashPrimary}>
                                     Top Holders Distribution
                                 </Text>
-                                <button
-                                    onClick={fetchTopHolders}
-                                    disabled={isLoading}
-                                    style={{
-                                        background: 'rgba(255, 65, 76, 0.2)',
-                                        border: '1px solid rgba(255, 65, 76, 0.5)',
-                                        borderRadius: '8px',
-                                        padding: '8px 12px',
-                                        cursor: isLoading ? 'not-allowed' : 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        color: akashPrimary,
-                                        transition: 'all 0.2s',
-                                        opacity: isLoading ? 0.5 : 1
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        if (!isLoading) {
-                                            e.currentTarget.style.background = 'rgba(255, 65, 76, 0.3)';
-                                        }
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = 'rgba(255, 65, 76, 0.2)';
-                                    }}
-                                >
-                                    <RefreshIcon />
-                                    <span style={{ fontSize: '14px' }}>
-                                        {isLoading ? 'Loading...' : 'Refresh'}
-                                    </span>
-                                </button>
+                                {dataSource === 'backend' && (
+                                    <button
+                                        onClick={fetchTopHolders}
+                                        disabled={isLoading}
+                                        style={{
+                                            background: 'rgba(255, 65, 76, 0.2)',
+                                            border: '1px solid rgba(255, 65, 76, 0.5)',
+                                            borderRadius: '8px',
+                                            padding: '8px 12px',
+                                            cursor: isLoading ? 'not-allowed' : 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            color: akashPrimary,
+                                            transition: 'all 0.2s',
+                                            opacity: isLoading ? 0.5 : 1
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            if (!isLoading) {
+                                                e.currentTarget.style.background = 'rgba(255, 65, 76, 0.3)';
+                                            }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = 'rgba(255, 65, 76, 0.2)';
+                                        }}
+                                    >
+                                        <RefreshIcon />
+                                        <span style={{ fontSize: '14px' }}>
+                                            {isLoading ? 'Loading...' : 'Refresh'}
+                                        </span>
+                                    </button>
+                                )}
                             </Box>
                         </div>
                         <Text color={textSecondary}>
                             Bubble size represents token holdings
                         </Text>
-                        {dataSource === 'fallback' && (
+                        {dataSource === 'demo' && (
                             <div style={{ marginTop: '0.5rem' }}>
                                 <Text color="#FFA500" fontSize="$sm">
-                                    ⚠️ {error || 'Displaying sample data - Live API integration pending'}
+                                    📊 Displaying demonstration data
+                                </Text>
+                                <div style={{ marginTop: '0.25rem' }}>
+                                    <Text color={textSecondary} fontSize="$xs">
+                                        Note: No public API provides Akash holder richlist. See README for indexer setup.
+                                    </Text>
+                                </div>
+                            </div>
+                        )}
+                        {dataSource === 'backend' && (
+                            <div style={{ marginTop: '0.5rem' }}>
+                                <Text color="#4ADE80" fontSize="$sm">
+                                    ✓ Live data from custom indexer
                                 </Text>
                             </div>
                         )}
-                        {dataSource === 'live' && (
+                        {totalSupply && (
                             <div style={{ marginTop: '0.5rem' }}>
-                                <Text color="#4ADE80" fontSize="$sm">
-                                    ✓ Live data from blockchain
+                                <Text color={textSecondary} fontSize="$xs">
+                                    Total Supply: {totalSupply.toLocaleString()} AKT (from blockchain)
                                 </Text>
                             </div>
                         )}
@@ -339,7 +318,7 @@ const TopHoldersBubbleMap: React.FC = () => {
                                 <Box>
                                     <div style={{ marginBottom: '0.25rem' }}>
                                         <Text color={textSecondary} fontSize="$sm">
-                                            Total Holders
+                                            Displayed Holders
                                         </Text>
                                     </div>
                                     <Text color={textColor} fontSize="$3xl" fontWeight="$bold">
