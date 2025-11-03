@@ -45,11 +45,11 @@ const TextDivider = () => {
 const socialLinks = [
   {
     icon: <Icon name="github" color="$blackAlpha600" />,
-    href: 'https://github.com/hyperweb-io',
+    href: 'https://github.com/akash-network',
   },
   {
     icon: <Icon name="discord" color="$blackAlpha600" />,
-    href: 'https://discord.com/invite/xh3ZwHj2qQ',
+    href: 'https://discord.gg/akash',
   },
   {
     icon: (
@@ -57,11 +57,11 @@ const socialLinks = [
         <FaXTwitter size="16px" />
       </Box>
     ),
-    href: 'https://x.com/Hyperweb_',
+    href: 'https://x.com/akashnet_',
   },
   {
     icon: <Icon name="youtube" color="$blackAlpha600" />,
-    href: 'https://www.youtube.com/channel/UCA9jzRlnUJRxec8S5Lt7Vcw',
+    href: 'https://www.youtube.com/@AkashNetwork',
   },
 ];
 

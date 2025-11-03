@@ -22,7 +22,7 @@ export default function Home() {
         fontWeight="500"
         attributes={{ mt: '200px', mb: '20px' }}
       >
-        Create Interchain App
+        Akash Explorer
       </Text>
       <Text
         textAlign="center"
@@ -30,8 +30,7 @@ export default function Home() {
         fontWeight="500"
         attributes={{ mb: '20px' }}
       >
-        Welcome to <HighlightText>Interchain Kit</HighlightText> +{' '}
-        <HighlightText>Next.js</HighlightText>
+        Welcome to the community built Akash Block Explorer
       </Text>
       <ConnectButton />
       <Box
