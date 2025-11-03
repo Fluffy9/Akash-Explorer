@@ -53,12 +53,20 @@ const TopHoldersBubbleMap: React.FC = () => {
     }, []);
 
     const fetchWithTimeout = (url: string, timeout = 5000): Promise<Response> => {
-        return Promise.race([
-            fetch(url),
-            new Promise<Response>((_, reject) =>
-                setTimeout(() => reject(new Error('Request timeout')), timeout)
-            )
-        ]);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        return fetch(url, { signal: controller.signal })
+            .then(response => {
+                clearTimeout(timeoutId);
+                return response;
+            })
+            .catch(err => {
+                clearTimeout(timeoutId);
+                if (err.name === 'AbortError') {
+                    throw new Error('Request timeout');
+                }
+                throw err;
+            });
     };
 
     const fetchTopHolders = async () => {
@@ -85,7 +93,7 @@ const TopHoldersBubbleMap: React.FC = () => {
 
         try {
             // Option 2: Try the Arcturian API for supply info
-            const supplyResponse = await fetch('https://akash.api.arcturian.tech/cosmos/bank/v1beta1/supply/uakt');
+          const supplyResponse = await fetchWithTimeout('https://akash.api.arcturian.tech/cosmos/bank/v1beta1/supply/uakt');
 
             if (supplyResponse.ok) {
                 const supplyData = await supplyResponse.json();
@@ -99,7 +107,7 @@ const TopHoldersBubbleMap: React.FC = () => {
 
         try {
             // Option 3: Try alternative explorer APIs
-            const alternativeResponse = await fetch('https://api-akash.cosmostation.io/v1/account/holders?limit=15');
+            const alternativeResponse = await fetchWithTimeout('https://api-akash.cosmostation.io/v1/account/holders?limit=15');
 
             if (alternativeResponse.ok) {
                 const data = await alternativeResponse.json();
