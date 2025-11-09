@@ -43,6 +43,24 @@ const TopHoldersBubbleMap: React.FC = () => {
         return () => clearInterval(interval);
     }, []);
 
+    const fetchWithTimeout = (url: string, timeout = 8000): Promise<Response> => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        return fetch(url, { signal: controller.signal })
+            .then(response => {
+                clearTimeout(timeoutId);
+                return response;
+            })
+            .catch(err => {
+                clearTimeout(timeoutId);
+                if (err.name === 'AbortError') {
+                    throw new Error('Request timeout');
+                }
+                throw err;
+            });
+    };
+
     const fetchTopHolders = async () => {
         setIsLoading(true);
         setError(null);
@@ -54,7 +72,7 @@ const TopHoldersBubbleMap: React.FC = () => {
             console.log('Fetching holder data from blockchain...');
             
             // Fetch total supply
-            const supplyResponse = await fetch(`${API_BASE}/cosmos/bank/v1beta1/supply/uakt`);
+            const supplyResponse = await fetchWithTimeout(`${API_BASE}/cosmos/bank/v1beta1/supply/uakt`);
             if (!supplyResponse.ok) throw new Error('Failed to fetch total supply');
             
             const supplyData = await supplyResponse.json();
@@ -75,7 +93,7 @@ const TopHoldersBubbleMap: React.FC = () => {
             while (hasMore && allHolders.length < maxHolders) {
                 console.log(`Fetching holders: offset=${offset}, limit=${limit}`);
                 
-                const holdersResponse = await fetch(
+                const holdersResponse = await fetchWithTimeout(
                     `${API_BASE}/cosmos/bank/v1beta1/denom_owners/uakt?pagination.offset=${offset}&pagination.limit=${limit}`
                 );
                 
