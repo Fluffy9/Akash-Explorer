@@ -34,12 +34,12 @@ const TopHoldersBubbleMap: React.FC = () => {
 
     useEffect(() => {
         fetchTopHolders();
-        
+
         // Auto-refresh every 5 minutes
         const interval = setInterval(() => {
             fetchTopHolders();
         }, 5 * 60 * 1000);
-        
+
         return () => clearInterval(interval);
     }, []);
 
@@ -68,64 +68,64 @@ const TopHoldersBubbleMap: React.FC = () => {
         try {
             // Use the working Akash API endpoint directly
             const API_BASE = 'https://akash.c29r3.xyz/api';
-            
+
             console.log('Fetching holder data from blockchain...');
-            
+
             // Fetch total supply
             const supplyResponse = await fetchWithTimeout(`${API_BASE}/cosmos/bank/v1beta1/supply/uakt`);
             if (!supplyResponse.ok) throw new Error('Failed to fetch total supply');
-            
+
             const supplyData = await supplyResponse.json();
-            const totalSupplyValue = supplyData?.amount?.amount 
-                ? parseFloat(supplyData.amount.amount) / 1000000 
+            const totalSupplyValue = supplyData?.amount?.amount
+                ? parseFloat(supplyData.amount.amount) / 1000000
                 : null;
-            
+
             setTotalSupply(totalSupplyValue);
             console.log('Total supply:', totalSupplyValue?.toLocaleString(), 'AKT');
-            
+
             // Fetch holders with pagination
             const allHolders: any[] = [];
             let offset = 0;
             const limit = 100;
             let hasMore = true;
             const maxHolders = 500; // Limit for performance
-            
+
             while (hasMore && allHolders.length < maxHolders) {
                 console.log(`Fetching holders: offset=${offset}, limit=${limit}`);
-                
+
                 const holdersResponse = await fetchWithTimeout(
                     `${API_BASE}/cosmos/bank/v1beta1/denom_owners/uakt?pagination.offset=${offset}&pagination.limit=${limit}`
                 );
-                
+
                 if (!holdersResponse.ok) {
                     console.error('Failed to fetch holders page');
                     break;
                 }
-                
+
                 const holdersData = await holdersResponse.json();
-                
+
                 if (holdersData?.denom_owners && holdersData.denom_owners.length > 0) {
                     allHolders.push(...holdersData.denom_owners);
                     console.log(`Total holders fetched: ${allHolders.length}`);
-                    
+
                     // Check if there are more pages
-                    hasMore = holdersData.pagination?.next_key != null && 
-                              holdersData.pagination.next_key !== '';
+                    hasMore = holdersData.pagination?.next_key != null &&
+                        holdersData.pagination.next_key !== '';
                     offset += limit;
-                    
+
                     // Small delay to avoid rate limiting
                     await new Promise(resolve => setTimeout(resolve, 100));
                 } else {
                     break;
                 }
             }
-            
+
             if (allHolders.length === 0) {
                 throw new Error('No holder data received');
             }
-            
+
             console.log(`Processing ${allHolders.length} holders...`);
-            
+
             // Process holders: convert uakt to AKT, sort, rank
             const processedHolders = allHolders
                 .map(holder => ({
@@ -139,14 +139,14 @@ const TopHoldersBubbleMap: React.FC = () => {
                     address: truncateAddress(holder.address),
                     fullAddress: holder.address,
                     balance: holder.balance,
-                    percentage: totalSupplyValue 
-                        ? (holder.balance / totalSupplyValue) * 100 
+                    percentage: totalSupplyValue
+                        ? (holder.balance / totalSupplyValue) * 100
                         : 0,
                     rank: index + 1
                 }));
 
             console.log('Top 15 holders processed:', processedHolders.length);
-            
+
             setHolders(processedHolders);
             setLastUpdated(Date.now());
             setDataSource('live');
@@ -169,11 +169,11 @@ const TopHoldersBubbleMap: React.FC = () => {
         const now = Date.now();
         const diff = now - timestamp;
         const minutes = Math.floor(diff / 60000);
-        
+
         if (minutes < 1) return 'just now';
         if (minutes === 1) return '1 minute ago';
         if (minutes < 60) return `${minutes} minutes ago`;
-        
+
         const hours = Math.floor(minutes / 60);
         if (hours === 1) return '1 hour ago';
         return `${hours} hours ago`;
@@ -310,7 +310,7 @@ const TopHoldersBubbleMap: React.FC = () => {
                                 )}
                             </div>
                         )}
-                {dataSource === 'error' && (
+                        {dataSource === 'error' && (
                             <div style={{ marginTop: '0.5rem' }}>
                                 <Text color="#FFA500" fontSize="$sm">
                                     ⚠️ Unable to fetch holder data
@@ -610,9 +610,20 @@ const TopHoldersBubbleMap: React.FC = () => {
                                     backgroundColor={hoveredHolder === holder.address ? cardBg : 'transparent'}
                                     attributes={{
                                         style: { transition: 'background-color 0.2s' },
+                                        role: 'button',
+                                        tabIndex: 0,
+                                        'aria-pressed': selectedHolder === holder.address,
                                         onMouseEnter: () => setHoveredHolder(holder.address),
                                         onMouseLeave: () => setHoveredHolder(null),
-                                        onClick: () => setSelectedHolder(selectedHolder === holder.address ? null : holder.address)
+                                        onClick: () => setSelectedHolder(selectedHolder === holder.address ? null : holder.address),
+                                        onFocus: () => setHoveredHolder(holder.address),
+                                        onBlur: () => setHoveredHolder(null),
+                                        onKeyDown: (e: React.KeyboardEvent) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                setSelectedHolder(selectedHolder === holder.address ? null : holder.address);
+                                            }
+                                        }
                                     }}
                                 >
                                     <Box
