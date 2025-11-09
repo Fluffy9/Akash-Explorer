@@ -3,6 +3,7 @@ import { Box, Icon, Text, useColorModeValue } from '@interchain-ui/react';
 
 interface Holder {
     address: string;
+    fullAddress?: string;
     balance: number;
     percentage: number;
     rank: number;
@@ -13,32 +14,13 @@ interface BubblePosition {
     top: number;
 }
 
-// Hardcoded fallback data
-// NOTE: Currently, there is NO public API that provides Akash holder richlist data.
-// This data serves as demonstration until proper indexing is implemented.
-const FALLBACK_HOLDERS: Holder[] = [
-    { address: 'akash1abc...xyz1', balance: 15000000, percentage: 15.5, rank: 1 },
-    { address: 'akash1def...xyz2', balance: 12000000, percentage: 12.3, rank: 2 },
-    { address: 'akash1ghi...xyz3', balance: 10000000, percentage: 10.2, rank: 3 },
-    { address: 'akash1jkl...xyz4', balance: 8500000, percentage: 8.7, rank: 4 },
-    { address: 'akash1mno...xyz5', balance: 7000000, percentage: 7.2, rank: 5 },
-    { address: 'akash1pqr...xyz6', balance: 6000000, percentage: 6.1, rank: 6 },
-    { address: 'akash1stu...xyz7', balance: 5200000, percentage: 5.3, rank: 7 },
-    { address: 'akash1vwx...xyz8', balance: 4500000, percentage: 4.6, rank: 8 },
-    { address: 'akash1yza...xyz9', balance: 3800000, percentage: 3.9, rank: 9 },
-    { address: 'akash1bcd...xy10', balance: 3200000, percentage: 3.3, rank: 10 },
-    { address: 'akash1efg...xy11', balance: 2800000, percentage: 2.9, rank: 11 },
-    { address: 'akash1hij...xy12', balance: 2400000, percentage: 2.5, rank: 12 },
-    { address: 'akash1klm...xy13', balance: 2000000, percentage: 2.0, rank: 13 },
-    { address: 'akash1nop...xy14', balance: 1800000, percentage: 1.8, rank: 14 },
-    { address: 'akash1qrs...xy15', balance: 1500000, percentage: 1.5, rank: 15 },
-];
-
 const TopHoldersBubbleMap: React.FC = () => {
-    const [holders, setHolders] = useState<Holder[]>(FALLBACK_HOLDERS);
-    const [isLoading, setIsLoading] = useState(false);
+    const [holders, setHolders] = useState<Holder[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [dataSource, setDataSource] = useState<'loading' | 'live' | 'error'>('loading');
     const [totalSupply, setTotalSupply] = useState<number | null>(null);
-    const [dataSource, setDataSource] = useState<'demo' | 'backend'>('demo');
+    const [lastUpdated, setLastUpdated] = useState<number | null>(null);
     const [hoveredHolder, setHoveredHolder] = useState<string | null>(null);
     const [selectedHolder, setSelectedHolder] = useState<string | null>(null);
 
@@ -51,92 +33,111 @@ const TopHoldersBubbleMap: React.FC = () => {
     const cardBorder = 'rgba(255, 65, 76, 0.3)';
 
     useEffect(() => {
-        // Fetch total supply on mount (this API works!)
-        fetchTotalSupply();
+        fetchTopHolders();
+        
+        // Auto-refresh every 5 minutes
+        const interval = setInterval(() => {
+            fetchTopHolders();
+        }, 5 * 60 * 1000);
+        
+        return () => clearInterval(interval);
     }, []);
 
-    const fetchWithTimeout = (url: string, timeout = 5000): Promise<Response> => {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-        return fetch(url, { signal: controller.signal })
-            .then(response => {
-                clearTimeout(timeoutId);
-                return response;
-            })
-            .catch(err => {
-                clearTimeout(timeoutId);
-                if (err.name === 'AbortError') {
-                    throw new Error('Request timeout');
-                }
-                throw err;
-            });
-    };
-
-    // Fetch actual total supply from Akash blockchain
-    const fetchTotalSupply = async () => {
-        try {
-            // Try multiple working API endpoints
-            const endpoints = [
-                'https://akash-api.polkachu.com/cosmos/bank/v1beta1/supply/uakt',
-                'https://akash-api.stakecito.com/cosmos/bank/v1beta1/supply/uakt',
-                'https://rest.cosmos.directory/akash/cosmos/bank/v1beta1/supply/uakt'
-            ];
-
-            for (const endpoint of endpoints) {
-                try {
-                    const response = await fetchWithTimeout(endpoint);
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data?.amount?.amount) {
-                            const supplyInAKT = parseInt(data.amount.amount) / 1000000;
-                            setTotalSupply(supplyInAKT);
-                            console.log('Total AKT supply:', supplyInAKT.toLocaleString());
-                            return;
-                        }
-                    }
-                } catch (err) {
-                    console.warn(`Failed to fetch from ${endpoint}:`, err);
-                    continue;
-                }
-            }
-        } catch (err) {
-            console.error('Failed to fetch total supply:', err);
-        }
-    };
-
-    // Attempt to fetch holder data from custom backend
     const fetchTopHolders = async () => {
         setIsLoading(true);
+        setError(null);
 
         try {
-            // Check if a custom backend endpoint is configured
-            const backendUrl = process.env.NEXT_PUBLIC_HOLDERS_API ||
-                process.env.REACT_APP_HOLDERS_API;
-
-            if (backendUrl) {
-                const response = await fetchWithTimeout(backendUrl);
-
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data?.holders && Array.isArray(data.holders) && data.holders.length > 0) {
-                        setHolders(data.holders);
-                        setDataSource('backend');
-                        setIsLoading(false);
-                        return;
-                    }
+            // Use the working Akash API endpoint directly
+            const API_BASE = 'https://akash.c29r3.xyz/api';
+            
+            console.log('Fetching holder data from blockchain...');
+            
+            // Fetch total supply
+            const supplyResponse = await fetch(`${API_BASE}/cosmos/bank/v1beta1/supply/uakt`);
+            if (!supplyResponse.ok) throw new Error('Failed to fetch total supply');
+            
+            const supplyData = await supplyResponse.json();
+            const totalSupplyValue = supplyData?.amount?.amount 
+                ? parseFloat(supplyData.amount.amount) / 1000000 
+                : null;
+            
+            setTotalSupply(totalSupplyValue);
+            console.log('Total supply:', totalSupplyValue?.toLocaleString(), 'AKT');
+            
+            // Fetch holders with pagination
+            const allHolders: any[] = [];
+            let offset = 0;
+            const limit = 100;
+            let hasMore = true;
+            const maxHolders = 500; // Limit for performance
+            
+            while (hasMore && allHolders.length < maxHolders) {
+                console.log(`Fetching holders: offset=${offset}, limit=${limit}`);
+                
+                const holdersResponse = await fetch(
+                    `${API_BASE}/cosmos/bank/v1beta1/denom_owners/uakt?pagination.offset=${offset}&pagination.limit=${limit}`
+                );
+                
+                if (!holdersResponse.ok) {
+                    console.error('Failed to fetch holders page');
+                    break;
+                }
+                
+                const holdersData = await holdersResponse.json();
+                
+                if (holdersData?.denom_owners && holdersData.denom_owners.length > 0) {
+                    allHolders.push(...holdersData.denom_owners);
+                    console.log(`Total holders fetched: ${allHolders.length}`);
+                    
+                    // Check if there are more pages
+                    hasMore = holdersData.pagination?.next_key != null && 
+                              holdersData.pagination.next_key !== '';
+                    offset += limit;
+                    
+                    // Small delay to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } else {
+                    break;
                 }
             }
+            
+            if (allHolders.length === 0) {
+                throw new Error('No holder data received');
+            }
+            
+            console.log(`Processing ${allHolders.length} holders...`);
+            
+            // Process holders: convert uakt to AKT, sort, rank
+            const processedHolders = allHolders
+                .map(holder => ({
+                    address: holder.address,
+                    balance: parseFloat(holder.balance.amount) / 1000000 // uakt to AKT
+                }))
+                .filter(holder => holder.balance > 0)
+                .sort((a, b) => b.balance - a.balance)
+                .slice(0, 15) // Top 15
+                .map((holder, index) => ({
+                    address: truncateAddress(holder.address),
+                    fullAddress: holder.address,
+                    balance: holder.balance,
+                    percentage: totalSupplyValue 
+                        ? (holder.balance / totalSupplyValue) * 100 
+                        : 0,
+                    rank: index + 1
+                }));
 
-            // If no backend or backend fails, use demo data
-            console.log('Using demonstration data - No backend API configured');
-            setHolders(FALLBACK_HOLDERS);
-            setDataSource('demo');
+            console.log('Top 15 holders processed:', processedHolders.length);
+            
+            setHolders(processedHolders);
+            setLastUpdated(Date.now());
+            setDataSource('live');
+            setIsLoading(false);
 
-        } catch (err) {
-            console.warn('Failed to fetch holder data:', err);
-            setHolders(FALLBACK_HOLDERS);
-            setDataSource('demo');
-        } finally {
+        } catch (err: any) {
+            console.error('Failed to fetch holder data:', err);
+            setError(err.message || 'Failed to fetch holder data');
+            setDataSource('error');
             setIsLoading(false);
         }
     };
@@ -144,6 +145,20 @@ const TopHoldersBubbleMap: React.FC = () => {
     const truncateAddress = (address: string): string => {
         if (address.length <= 20) return address;
         return `${address.slice(0, 11)}...${address.slice(-4)}`;
+    };
+
+    const formatTimestamp = (timestamp: number) => {
+        const now = Date.now();
+        const diff = now - timestamp;
+        const minutes = Math.floor(diff / 60000);
+        
+        if (minutes < 1) return 'just now';
+        if (minutes === 1) return '1 minute ago';
+        if (minutes < 60) return `${minutes} minutes ago`;
+        
+        const hours = Math.floor(minutes / 60);
+        if (hours === 1) return '1 hour ago';
+        return `${hours} hours ago`;
     };
 
     const balances = holders.map(h => h.balance);
@@ -232,36 +247,30 @@ const TopHoldersBubbleMap: React.FC = () => {
                                 <Text fontSize="$2xl" fontWeight="$semibold" color={akashPrimary}>
                                     Top Holders Distribution
                                 </Text>
-                                {dataSource === 'backend' && (
+                                {!isLoading && dataSource === 'live' && (
                                     <button
                                         onClick={fetchTopHolders}
-                                        disabled={isLoading}
                                         style={{
                                             background: 'rgba(255, 65, 76, 0.2)',
                                             border: '1px solid rgba(255, 65, 76, 0.5)',
                                             borderRadius: '8px',
                                             padding: '8px 12px',
-                                            cursor: isLoading ? 'not-allowed' : 'pointer',
+                                            cursor: 'pointer',
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: '6px',
                                             color: akashPrimary,
-                                            transition: 'all 0.2s',
-                                            opacity: isLoading ? 0.5 : 1
+                                            transition: 'all 0.2s'
                                         }}
                                         onMouseEnter={(e) => {
-                                            if (!isLoading) {
-                                                e.currentTarget.style.background = 'rgba(255, 65, 76, 0.3)';
-                                            }
+                                            e.currentTarget.style.background = 'rgba(255, 65, 76, 0.3)';
                                         }}
                                         onMouseLeave={(e) => {
                                             e.currentTarget.style.background = 'rgba(255, 65, 76, 0.2)';
                                         }}
                                     >
                                         <RefreshIcon />
-                                        <span style={{ fontSize: '14px' }}>
-                                            {isLoading ? 'Loading...' : 'Refresh'}
-                                        </span>
+                                        <span style={{ fontSize: '14px' }}>Refresh</span>
                                     </button>
                                 )}
                             </Box>
@@ -269,29 +278,36 @@ const TopHoldersBubbleMap: React.FC = () => {
                         <Text color={textSecondary}>
                             Bubble size represents token holdings
                         </Text>
-                        {dataSource === 'demo' && (
+                        {dataSource === 'live' && (
+                            <div style={{ marginTop: '0.5rem' }}>
+                                <Text color="#4ADE80" fontSize="$sm">
+                                    ✓ Live data from Akash blockchain
+                                </Text>
+                                {lastUpdated && (
+                                    <div style={{ marginTop: '0.25rem' }}>
+                                        <Text color={textSecondary} fontSize="$xs">
+                                            Updated {formatTimestamp(lastUpdated)}
+                                        </Text>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                {dataSource === 'error' && (
                             <div style={{ marginTop: '0.5rem' }}>
                                 <Text color="#FFA500" fontSize="$sm">
-                                    📊 Displaying demonstration data
+                                    ⚠️ Unable to fetch holder data
                                 </Text>
                                 <div style={{ marginTop: '0.25rem' }}>
                                     <Text color={textSecondary} fontSize="$xs">
-                                        Note: No public API provides Akash holder richlist. See README for indexer setup.
+                                        {error || 'Blockchain API temporarily unavailable'}
                                     </Text>
                                 </div>
-                            </div>
-                        )}
-                        {dataSource === 'backend' && (
-                            <div style={{ marginTop: '0.5rem' }}>
-                                <Text color="#4ADE80" fontSize="$sm">
-                                    ✓ Live data from custom indexer
-                                </Text>
                             </div>
                         )}
                         {totalSupply && (
                             <div style={{ marginTop: '0.5rem' }}>
                                 <Text color={textSecondary} fontSize="$xs">
-                                    Total Supply: {totalSupply.toLocaleString()} AKT (from blockchain)
+                                    Total Supply: {totalSupply.toLocaleString()} AKT
                                 </Text>
                             </div>
                         )}
@@ -299,78 +315,80 @@ const TopHoldersBubbleMap: React.FC = () => {
                 </div>
 
                 {/* Stats Bar */}
-                <div style={{ marginBottom: '3rem' }}>
-                    <Box
-                        display="grid"
-                        gridTemplateColumns={{ mobile: '1fr', tablet: 'repeat(3, 1fr)' }}
-                        gap="$6"
-                    >
+                {holders.length > 0 && (
+                    <div style={{ marginBottom: '3rem' }}>
                         <Box
-                            backgroundColor={cardBg}
-                            borderRadius="$lg"
-                            p="$8"
-                            border={`1px solid ${cardBorder}`}
+                            display="grid"
+                            gridTemplateColumns={{ mobile: '1fr', tablet: 'repeat(3, 1fr)' }}
+                            gap="$6"
                         >
-                            <Box display="flex" alignItems="center" gap="$4">
-                                <Box color={akashPrimary}>
-                                    <UsersIcon />
-                                </Box>
-                                <Box>
-                                    <div style={{ marginBottom: '0.25rem' }}>
-                                        <Text color={textSecondary} fontSize="$sm">
-                                            Displayed Holders
+                            <Box
+                                backgroundColor={cardBg}
+                                borderRadius="$lg"
+                                p="$8"
+                                border={`1px solid ${cardBorder}`}
+                            >
+                                <Box display="flex" alignItems="center" gap="$4">
+                                    <Box color={akashPrimary}>
+                                        <UsersIcon />
+                                    </Box>
+                                    <Box>
+                                        <div style={{ marginBottom: '0.25rem' }}>
+                                            <Text color={textSecondary} fontSize="$sm">
+                                                Top Holders
+                                            </Text>
+                                        </div>
+                                        <Text color={textColor} fontSize="$3xl" fontWeight="$bold">
+                                            {holders.length}
                                         </Text>
-                                    </div>
-                                    <Text color={textColor} fontSize="$3xl" fontWeight="$bold">
-                                        {holders.length}
-                                    </Text>
+                                    </Box>
                                 </Box>
                             </Box>
-                        </Box>
 
-                        <Box
-                            backgroundColor={cardBg}
-                            borderRadius="$lg"
-                            p="$8"
-                            border={`1px solid ${cardBorder}`}
-                        >
-                            <Box display="flex" alignItems="center" gap="$4">
-                                <Icon name="arrowUpS" size="$xl" color={akashPrimary} />
-                                <Box>
-                                    <div style={{ marginBottom: '0.25rem' }}>
-                                        <Text color={textSecondary} fontSize="$sm">
-                                            Largest Holder
+                            <Box
+                                backgroundColor={cardBg}
+                                borderRadius="$lg"
+                                p="$8"
+                                border={`1px solid ${cardBorder}`}
+                            >
+                                <Box display="flex" alignItems="center" gap="$4">
+                                    <Icon name="arrowUpS" size="$xl" color={akashPrimary} />
+                                    <Box>
+                                        <div style={{ marginBottom: '0.25rem' }}>
+                                            <Text color={textSecondary} fontSize="$sm">
+                                                Largest Holder
+                                            </Text>
+                                        </div>
+                                        <Text color={textColor} fontSize="$3xl" fontWeight="$bold">
+                                            {holders[0]?.percentage.toFixed(2)}%
                                         </Text>
-                                    </div>
-                                    <Text color={textColor} fontSize="$3xl" fontWeight="$bold">
-                                        {holders[0]?.percentage}%
-                                    </Text>
+                                    </Box>
                                 </Box>
                             </Box>
-                        </Box>
 
-                        <Box
-                            backgroundColor={cardBg}
-                            borderRadius="$lg"
-                            p="$8"
-                            border={`1px solid ${cardBorder}`}
-                        >
-                            <Box display="flex" alignItems="center" gap="$4">
-                                <Icon name="walletFilled" size="$xl" color={akashPrimary} />
-                                <Box>
-                                    <div style={{ marginBottom: '0.25rem' }}>
-                                        <Text color={textSecondary} fontSize="$sm">
-                                            Top 15 Control
+                            <Box
+                                backgroundColor={cardBg}
+                                borderRadius="$lg"
+                                p="$8"
+                                border={`1px solid ${cardBorder}`}
+                            >
+                                <Box display="flex" alignItems="center" gap="$4">
+                                    <Icon name="walletFilled" size="$xl" color={akashPrimary} />
+                                    <Box>
+                                        <div style={{ marginBottom: '0.25rem' }}>
+                                            <Text color={textSecondary} fontSize="$sm">
+                                                Top 15 Control
+                                            </Text>
+                                        </div>
+                                        <Text color={textColor} fontSize="$3xl" fontWeight="$bold">
+                                            {holders.slice(0, 15).reduce((sum, h) => sum + h.percentage, 0).toFixed(1)}%
                                         </Text>
-                                    </div>
-                                    <Text color={textColor} fontSize="$3xl" fontWeight="$bold">
-                                        {holders.slice(0, 15).reduce((sum, h) => sum + h.percentage, 0).toFixed(1)}%
-                                    </Text>
+                                    </Box>
                                 </Box>
                             </Box>
                         </Box>
-                    </Box>
-                </div>
+                    </div>
+                )}
 
                 {/* Loading State */}
                 {isLoading && (
@@ -383,13 +401,55 @@ const TopHoldersBubbleMap: React.FC = () => {
                         mb="$8"
                     >
                         <Text color={textColor} fontSize="$lg">
-                            Loading holder data...
+                            Loading holder data from blockchain...
                         </Text>
+                        <div style={{ marginTop: '0.5rem' }}>
+                            <Text color={textSecondary} fontSize="$sm">
+                                This may take a few moments
+                            </Text>
+                        </div>
+                    </Box>
+                )}
+
+                {/* Error State */}
+                {dataSource === 'error' && !isLoading && (
+                    <Box
+                        backgroundColor="rgba(255, 65, 76, 0.05)"
+                        borderRadius="$2xl"
+                        p="$12"
+                        border="1px solid rgba(255, 65, 76, 0.2)"
+                        textAlign="center"
+                        mb="$8"
+                    >
+                        <Text color={textColor} fontSize="$lg">
+                            Unable to load holder data
+                        </Text>
+                        <div style={{ marginTop: '0.5rem' }}>
+                            <Text color={textSecondary} fontSize="$sm">
+                                The blockchain API may be temporarily unavailable
+                            </Text>
+                        </div>
+                        <button
+                            onClick={fetchTopHolders}
+                            style={{
+                                marginTop: '1rem',
+                                background: akashPrimary,
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '12px 24px',
+                                cursor: 'pointer',
+                                color: 'white',
+                                fontSize: '14px',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            Retry
+                        </button>
                     </Box>
                 )}
 
                 {/* Bubble Map Container */}
-                {!isLoading && (
+                {!isLoading && holders.length > 0 && (
                     <div style={{ marginBottom: '3rem' }}>
                         <Box
                             backgroundColor="rgba(255, 65, 76, 0.05)"
@@ -436,7 +496,7 @@ const TopHoldersBubbleMap: React.FC = () => {
                                             <Box textAlign="center" color="white" fontWeight="$bold">
                                                 <Text fontSize="$sm">#{holder.rank}</Text>
                                                 <div style={{ marginTop: '0.25rem' }}>
-                                                    <Text fontSize="$xs">{holder.percentage}%</Text>
+                                                    <Text fontSize="$xs">{holder.percentage.toFixed(1)}%</Text>
                                                 </div>
                                             </Box>
 
@@ -475,7 +535,7 @@ const TopHoldersBubbleMap: React.FC = () => {
                                                         </Text>
                                                     </div>
                                                     <Text fontSize="$xs" color={textSecondary}>
-                                                        {holder.percentage}% of supply
+                                                        {holder.percentage.toFixed(2)}% of supply
                                                     </Text>
                                                     <Box
                                                         attributes={{
@@ -503,68 +563,70 @@ const TopHoldersBubbleMap: React.FC = () => {
                 )}
 
                 {/* Legend */}
-                <Box
-                    backgroundColor="rgba(255, 65, 76, 0.05)"
-                    borderRadius="$lg"
-                    p="$10"
-                    border="1px solid rgba(255, 65, 76, 0.2)"
-                >
-                    <div style={{ marginBottom: '1.5rem' }}>
-                        <Text color={textColor} fontWeight="$semibold" fontSize="$lg">
-                            Top 15 Holders
-                        </Text>
-                    </div>
+                {holders.length > 0 && (
                     <Box
-                        display="grid"
-                        gridTemplateColumns={{ mobile: '1fr', tablet: 'repeat(2, 1fr)', desktop: 'repeat(3, 1fr)' }}
-                        gap="$4"
+                        backgroundColor="rgba(255, 65, 76, 0.05)"
+                        borderRadius="$lg"
+                        p="$10"
+                        border="1px solid rgba(255, 65, 76, 0.2)"
                     >
-                        {holders.slice(0, 15).map((holder) => (
-                            <Box
-                                key={holder.address}
-                                display="flex"
-                                alignItems="center"
-                                gap="$4"
-                                p="$3"
-                                borderRadius="$md"
-                                cursor="pointer"
-                                backgroundColor={hoveredHolder === holder.address ? cardBg : 'transparent'}
-                                attributes={{
-                                    style: { transition: 'background-color 0.2s' },
-                                    onMouseEnter: () => setHoveredHolder(holder.address),
-                                    onMouseLeave: () => setHoveredHolder(null),
-                                    onClick: () => setSelectedHolder(selectedHolder === holder.address ? null : holder.address)
-                                }}
-                            >
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <Text color={textColor} fontWeight="$semibold" fontSize="$lg">
+                                Top {holders.length} Holders
+                            </Text>
+                        </div>
+                        <Box
+                            display="grid"
+                            gridTemplateColumns={{ mobile: '1fr', tablet: 'repeat(2, 1fr)', desktop: 'repeat(3, 1fr)' }}
+                            gap="$4"
+                        >
+                            {holders.map((holder) => (
                                 <Box
-                                    width="16px"
-                                    height="16px"
-                                    borderRadius="$full"
-                                    flexShrink={0}
+                                    key={holder.address}
+                                    display="flex"
+                                    alignItems="center"
+                                    gap="$4"
+                                    p="$3"
+                                    borderRadius="$md"
+                                    cursor="pointer"
+                                    backgroundColor={hoveredHolder === holder.address ? cardBg : 'transparent'}
                                     attributes={{
-                                        style: { backgroundColor: getColor(holder.rank - 1) }
+                                        style: { transition: 'background-color 0.2s' },
+                                        onMouseEnter: () => setHoveredHolder(holder.address),
+                                        onMouseLeave: () => setHoveredHolder(null),
+                                        onClick: () => setSelectedHolder(selectedHolder === holder.address ? null : holder.address)
                                     }}
-                                />
-                                <Box flex={1} minWidth={0} display="flex" alignItems="center" justifyContent="space-between" gap="$3">
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        <Text
-                                            color={textColor}
-                                            fontSize="$sm"
-                                            fontFamily="monospace"
-                                        >
-                                            #{holder.rank} {holder.address}
-                                        </Text>
-                                    </span>
-                                    <span style={{ whiteSpace: 'nowrap' }}>
-                                        <Text color={akashPrimary} fontSize="$sm" fontWeight="$semibold">
-                                            {holder.percentage}%
-                                        </Text>
-                                    </span>
+                                >
+                                    <Box
+                                        width="16px"
+                                        height="16px"
+                                        borderRadius="$full"
+                                        flexShrink={0}
+                                        attributes={{
+                                            style: { backgroundColor: getColor(holder.rank - 1) }
+                                        }}
+                                    />
+                                    <Box flex={1} minWidth={0} display="flex" alignItems="center" justifyContent="space-between" gap="$3">
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <Text
+                                                color={textColor}
+                                                fontSize="$sm"
+                                                fontFamily="monospace"
+                                            >
+                                                #{holder.rank} {holder.address}
+                                            </Text>
+                                        </span>
+                                        <span style={{ whiteSpace: 'nowrap' }}>
+                                            <Text color={akashPrimary} fontSize="$sm" fontWeight="$semibold">
+                                                {holder.percentage.toFixed(1)}%
+                                            </Text>
+                                        </span>
+                                    </Box>
                                 </Box>
-                            </Box>
-                        ))}
+                            ))}
+                        </Box>
                     </Box>
-                </Box>
+                )}
 
                 {/* Instructions */}
                 <div style={{ marginTop: '2.5rem' }}>
